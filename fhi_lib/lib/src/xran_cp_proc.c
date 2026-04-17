@@ -35,7 +35,10 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <malloc.h>
+#if defined(__arm__) || defined(__aarch64__)
+#else
 #include <immintrin.h>
+#endif
 
 #include <rte_common.h>
 #include <rte_eal.h>
@@ -640,7 +643,7 @@ int generate_cpmsg_prach(void *pHandle, struct xran_cp_gen_params *params, struc
     if(XRAN_FILTERINDEX_PRACH_ABC == pPrachCPConfig->filterIdx)
     {
         timeOffset = timeOffset >> nNumerology; //original number is Tc, convert to Ts based on mu
-        if ((slot_id == 0) || (slot_id == (SLOTNUM_PER_SUBFRAME(xran_fs_get_tti_interval(mu)) >> 1)))
+        if (startSymId > 0 && ((slot_id == 0) || (slot_id == (SLOTNUM_PER_SUBFRAME(xran_fs_get_tti_interval(mu)) >> 1))))
             timeOffset += 16;
     }
     else

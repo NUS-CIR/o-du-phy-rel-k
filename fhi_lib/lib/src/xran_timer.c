@@ -32,7 +32,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#if defined(__arm__) || defined(__aarch64__)
+#include <arm_neon.h>
+#else
 #include <immintrin.h>
+#endif
 
 #include "xran_timer.h"
 #include "xran_main.h"

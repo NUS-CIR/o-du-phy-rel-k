@@ -52,16 +52,7 @@ struct xran_lib_compander_for_isa
 {
     xran_lib_compander_for_isa() {
         if (gCpuCapability == -1) {
-#ifdef _BBLIB_SPR_
-            if (_may_i_use_cpu_feature(_FEATURE_F16C)) {
-                gCpuCapability = 2;
-            } else 
-#endif
-            if (_may_i_use_cpu_feature(_FEATURE_AVX512IFMA52)) {
-                gCpuCapability = 1;
-            } else {
-                gCpuCapability = 0;
-            }
+            gCpuCapability = 0;
         }
 
         printf("xran_lib_compander_for_isa: %d\n", gCpuCapability);
@@ -89,11 +80,7 @@ xranlib_compress(const struct xranlib_compress_request *request,
         return xranlib_5gnr_mod_compression(&mod_request, &mod_response);
     }
     else{
-        if(XRANLIB_COMPAND_CHECK_CPU_CAPABILITY()) {
-            return xranlib_compress_avxsnc(request,response);
-        } else {
-            return xranlib_compress_avx512(request,response);
-        }
+        return xranlib_compress_avx512(request,response);
     }
 }
 
@@ -118,8 +105,6 @@ xranlib_decompress(const struct xranlib_decompress_request *request,
     else{
         if((gCpuCapability == 2)&&(request->SprEnable == 1)) {
             return xranlib_decompress_5gisa(request,response);
-        } else if(XRANLIB_COMPAND_CHECK_CPU_CAPABILITY()) {
-            return xranlib_decompress_avxsnc(request,response);
         } else {
             return xranlib_decompress_avx512(request,response);
         }
@@ -191,22 +176,14 @@ int32_t
 xranlib_compress_bfw(const struct xranlib_compress_request *request,
                         struct xranlib_compress_response *response)
 {
-    if(XRANLIB_COMPAND_CHECK_CPU_CAPABILITY()) {
-        return xranlib_compress_avxsnc_bfw(request,response);
-    } else {
-        return xranlib_compress_avx512_bfw(request,response);
-    }
+    return xranlib_compress_avx512_bfw(request,response);
 }
 
 int32_t
 xranlib_decompress_bfw(const struct xranlib_decompress_request *request,
     struct xranlib_decompress_response *response)
 {
-    if(XRANLIB_COMPAND_CHECK_CPU_CAPABILITY()) {
-        return xranlib_decompress_avxsnc_bfw(request,response);
-    } else {
-        return xranlib_decompress_avx512_bfw(request,response);
-    }
+    return xranlib_decompress_avx512_bfw(request,response);
 }
 
 int32_t

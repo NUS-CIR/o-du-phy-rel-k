@@ -89,7 +89,7 @@ namespace BFP_UPlane
   {
     const __m512i* rawData = reinterpret_cast<const __m512i*>(dataIn.dataExpanded);
     /// Abs
-    const auto rawDataAbs = _mm512_abs_epi16(rawData[0]);
+    const auto rawDataAbs = _mm512_abs_epi16(_mm512_loadu_epi16(rawData));
     /// No need to do a full horizontal max operation here, just do a max IQ step,
     /// compute the exponents and then use a reduce max over all exponent values. This
     /// is the fastest way to handle a single RB.

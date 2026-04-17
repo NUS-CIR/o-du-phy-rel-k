@@ -31,7 +31,10 @@
 #include <sys/time.h>
 #include <time.h>
 #include <pthread.h>
+#if defined(__arm__) || defined(__aarch64__)
+#else
 #include <immintrin.h>
+#endif
 #include <rte_mbuf.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -967,11 +970,14 @@ int32_t process_mbuf(struct rte_mbuf *pkt, void* handle, struct xran_eaxc_info *
     uint8_t compMeth = 0;
     uint8_t iqWidth = 0;
 
+    uint8_t is_prach = 0;
+
     int ret = MBUF_FREE;
     uint32_t mb_free = 0;
     int32_t valid_res = 0;
     int expect_comp  = (p_dev_ctx->fh_cfg.ru_conf.compMeth != XRAN_COMPMETHOD_NONE);
     enum xran_comp_hdr_type staticComp = p_dev_ctx->fh_cfg.ru_conf.xranCompHdrType;
+    uint8_t filter_id;
 
 #ifdef POLL_EBBU_OFFLOAD
     PXRAN_TIMER_CTX pCtx = xran_timer_get_ctx_ebbu_offload();
@@ -991,9 +997,9 @@ int32_t process_mbuf(struct rte_mbuf *pkt, void* handle, struct xran_eaxc_info *
         return MBUF_FREE;
 
     num_bytes = xran_extract_iq_samples(pkt, &iq_samp_buf,
-                                &CC_ID, &Ant_ID, &frame_id, &subframe_id, &slot_id, &symb_id, &seq,
+                                &CC_ID, &Ant_ID, &frame_id, &subframe_id, &slot_id, &symb_id, &filter_id, &seq,
                                 &num_prbu, &start_prbu, &sym_inc, &rb, &sect_id,
-                                expect_comp, staticComp, &compMeth, &iqWidth, XRAN_GET_OXU_PORT_ID(p_dev_ctx));
+                                expect_comp, staticComp, &compMeth, &iqWidth, XRAN_GET_OXU_PORT_ID(p_dev_ctx), &is_prach);
     if (unlikely(num_bytes <= 0))
     {
         print_err("num_bytes is wrong [%d]\n", num_bytes);
@@ -1128,6 +1134,9 @@ int32_t process_mbuf(struct rte_mbuf *pkt, void* handle, struct xran_eaxc_info *
     } /* else if (Ant_ID >= p_dev_ctx->srs_cfg.srsEaxcOffset ...... */
     else
     {
+        pCnt->rx_counter++;
+        pCnt->Rx_on_time++;
+        pCnt->Total_msgs_rcvd++;
         struct xran_prach_cp_config *PrachCfg = NULL;
 
         if(p_dev_ctx->dssEnable)
@@ -1143,9 +1152,7 @@ int32_t process_mbuf(struct rte_mbuf *pkt, void* handle, struct xran_eaxc_info *
             PrachCfg = &(p_dev_ctx->perMu[mu].PrachCPConfig);
         }
 
-        if (Ant_ID >= PrachCfg->prachEaxcOffset
-                && Ant_ID < (PrachCfg->prachEaxcOffset +xran_get_num_eAxc(p_dev_ctx))
-                && p_dev_ctx->fh_cfg.perMu[mu].prachEnable)
+        if (p_dev_ctx->fh_cfg.perMu[mu].prachEnable && is_prach)
         {
             if(p_dev_ctx->fh_cfg.ru_conf.xranTech == XRAN_RAN_5GNR)
             {
@@ -1992,8 +1999,7 @@ int32_t ring_processing_func(void* args)
                 rte_timer_manage();
 #endif
 
-                if (process_ring(ctx->rx_ring[i][qi], i, qi))
-                    return 0;
+                process_ring(ctx->rx_ring[i][qi], i, qi);
             }
         // }
     }

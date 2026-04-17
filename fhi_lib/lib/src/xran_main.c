@@ -36,7 +36,11 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <malloc.h>
+#if defined(__arm__) || defined(__aarch64__)
+#include <arm_neon.h>
+#else
 #include <immintrin.h>
+#endif
 #include <numa.h>
 #include <rte_common.h>
 #include <rte_eal.h>
@@ -121,6 +125,25 @@ int32_t xran_pkt_gen_desc_free(struct cp_up_tx_desc *p_desc);
 
 int32_t xran_pkt_gen_process_ring(struct rte_ring *r);
 int32_t xran_dl_pkt_ring_processing_func(void* args);
+
+void *mm_allocate_handle(size_t size, size_t alignment) {
+  void *ptr = NULL;
+#if defined(__arm__) || defined(__aarch64__)
+  // ARM-specific memory allocation
+  if (posix_memalign(&ptr, alignment, size) != 0) {
+    fprintf(stderr, "posix_memalign: allocation error\n");
+    return NULL;
+  }
+#else
+  // Intel-specific memory allocation
+  ptr = _mm_malloc(size, alignment);
+  if (ptr == NULL) {
+    fprintf(stderr, "_mm_malloc: allocation error\n");
+    return NULL;
+  }
+#endif
+  return ptr;
+}
 
 void
 xran_updateSfnSecStart(void)
@@ -334,8 +357,8 @@ int32_t xran_init_prach_lte(struct xran_fh_config* pConf, struct xran_device_ctx
             pDevCtx->prach_start_symbol[0], pDevCtx->prach_last_symbol[0]);
     }
 
-    pPrachCPConfig->prachEaxcOffset = xran_get_num_eAxc(pDevCtx);
-    print_dbg("PRACH: eAxC_offset %d\n",  pPrachCPConfig->prachEaxcOffset);
+    pPrachCPConfig->prachEaxcOffset = pPRACHConfig->prachEaxcOffset;
+    print_dbg("PRACH: prachEaxcOffset %d\n",  pPrachCPConfig->prachEaxcOffset);
     /* Save some configs for app */
     pPRACHConfig->startSymId    = pPrachCPConfig->startSymId;
     pPRACHConfig->lastSymId     = pPrachCPConfig->startSymId + pPrachCPConfig->numSymbol * pPrachCPConfig->occassionsInPrachSlot - 1;
@@ -2319,6 +2342,7 @@ int32_t xran_handle_rx_pkts(struct rte_mbuf* pkt_q[], uint16_t xport_id, struct 
                         }
                     }
                     pkt_data[num_data++] = pkt;
+                    uint8_t *pkt_bytes = rte_pktmbuf_mtod(pkt, uint8_t*);
                     break;
                 // For RU emulation
                 case ECPRI_RT_CONTROL_DATA:
@@ -3663,8 +3687,7 @@ ring_processing_func_per_port(void* args)
     for (i = 0; i < ctx->io_cfg.num_vfs && i < XRAN_VF_MAX; i = i+1) {
         if (ctx->vf2xran_port[i] == portId) {
             for(qi = 0; qi < ctx->rxq_per_port[portId]; qi++){
-                if (process_ring(ctx->rx_ring[i][qi], i, qi))
-                    return 0;
+                process_ring(ctx->rx_ring[i][qi], i, qi);
             }
         }
     }
@@ -3708,7 +3731,7 @@ xran_status_t xran_update_worker_info(struct xran_worker_info_s *p_worker_info,
             continue;
         }
 
-        pThCtx = (struct xran_worker_th_ctx*) _mm_malloc(sizeof(struct xran_worker_th_ctx), 64);
+        pThCtx = (struct xran_worker_th_ctx*) mm_allocate_handle(sizeof(struct xran_worker_th_ctx), 64);
         if(pThCtx == NULL)
         {
             print_err("pThCtx allocation error\n");
@@ -3837,8 +3860,6 @@ int32_t xran_spawn_workers(void)
             break;
         }
     }
-
-    icx_cpu = _may_i_use_cpu_feature(_FEATURE_AVX512IFMA52);
 
     printf("ORAN operating mode: O-%s\n", (xran_get_syscfg_appmode() == ID_O_DU) ?"DU":"RU");
     printf("  Num of configured cores: %d%s\n", total_num_cores, icx_cpu?" (Xeon SP Gen3 or later)":"");
