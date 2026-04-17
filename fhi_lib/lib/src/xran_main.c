@@ -524,20 +524,7 @@ xran_init_prach(struct xran_fh_config* pConf, struct xran_device_ctx * pDevCtx, 
         printf("PRACH start symbol %u lastsymbol %u\n", pDevCtx->prach_start_symbol[0], pDevCtx->prach_last_symbol[0]);
     }
 
-    /* match the RU sample-app prachEaxcOffset with DU in case of numerology-3 */
-    if(mu == 3)
-        pPRACHConfig->prachEaxcOffset = RTE_MAX(xran_get_num_eAxc(pDevCtx), 4);
-
-    if(pPRACHConfig->prachEaxcOffset==0)
-    {
-        pPrachCPConfig->prachEaxcOffset = pDevCtx->fh_cfg.perMu[mu].eaxcOffset + xran_get_num_eAxc(pDevCtx);
-        pPRACHConfig->prachEaxcOffset = pPrachCPConfig->prachEaxcOffset;
-    }
-    else
-    {
-        pPrachCPConfig->prachEaxcOffset = pPRACHConfig->prachEaxcOffset;
-    }
-
+    pPrachCPConfig->prachEaxcOffset = pPRACHConfig->prachEaxcOffset;
     print_dbg("PRACH eAxC_offset %d\n",  pPrachCPConfig->prachEaxcOffset);
 
     /* Save some configs for app */
