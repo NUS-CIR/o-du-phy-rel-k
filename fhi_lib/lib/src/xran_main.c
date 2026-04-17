@@ -2332,13 +2332,17 @@ int32_t xran_handle_rx_pkts(struct rte_mbuf* pkt_q[], uint16_t xport_id, struct 
                     // ECPRI payload validation
                     if(likely(sysCfg->rru_workaround == 0))
                     {
-                        if(unlikely(expected_ecpri_payload != (rte_pktmbuf_pkt_len(pkt) - sizeof(union xran_ecpri_cmn_hdr))))
-                        {
-                            ++p_dev_ctx->fh_counters.rx_err_ecpri;
-                            ++p_dev_ctx->fh_counters.rx_err_drop;
-                            ++p_dev_ctx->fh_counters.rx_counter;
-                            rte_pktmbuf_free(pkt);
-                            continue;
+                        uint16_t size_tail = (rte_pktmbuf_pkt_len(pkt) - sizeof(union xran_ecpri_cmn_hdr)) - expected_ecpri_payload;
+                        if(size_tail > 0) {
+                          int trim_ret = rte_pktmbuf_trim(pkt, size_tail);
+                          if(unlikely(trim_ret != 0))
+                              {
+                                  ++p_dev_ctx->fh_counters.rx_err_ecpri;
+                                  ++p_dev_ctx->fh_counters.rx_err_drop;
+                                  ++p_dev_ctx->fh_counters.rx_counter;
+                                  rte_pktmbuf_free(pkt);
+                                  continue;
+                              }
                         }
                     }
                     pkt_data[num_data++] = pkt;
