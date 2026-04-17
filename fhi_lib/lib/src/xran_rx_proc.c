@@ -536,6 +536,9 @@ int32_t xran_process_rx_sym(void *arg,
         pRbMap = (struct xran_prb_map *) p_xran_dev_ctx->perMu[mu].sFrontHaulRxPrbMapBbuIoBufCtrl[tti % XRAN_N_FE_BUF_LEN][CC_ID][Ant_ID].sBufferList.pBuffers->pData;
         if(likely(pRbMap))
         {
+            if (p_xran_dev_ctx->RunSlotPrbMapBySymbolEnable) {
+              sect_id = (pRbMap->nPrbElm == XRAN_NUM_OF_SYMBOL_PER_SLOT) ? symb_id : symb_id - (XRAN_NUM_OF_SYMBOL_PER_SLOT - pRbMap->nPrbElm);
+            }
             /** Get the prb_elem_id */
             for(i=0 ; i < pRbMap->nPrbElm ; i++)
             {

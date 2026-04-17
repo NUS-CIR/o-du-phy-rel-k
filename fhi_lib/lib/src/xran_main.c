@@ -5606,27 +5606,23 @@ int32_t xran_init_PrbMap_by_symbol_from_cfg(struct xran_prb_map* p_PrbMapIn, str
 
     for(; i < XRAN_NUM_OF_SYMBOL_PER_SLOT; i++)
     {
-        if((nRBStart == prbMapTemp[i].nRBStart) && (nRBSize == prbMapTemp[i].nRBSize))
-        {
-                prbMapTemp[nPrbElm].numSymb++;
-        }
-        else
-        {
-            nPrbElm++;
-            prbMapTemp[nPrbElm].nStartSymb = prbMapTemp[i].nStartSymb;
-            prbMapTemp[nPrbElm].nRBStart = prbMapTemp[i].nRBStart;
-            prbMapTemp[nPrbElm].nRBSize = prbMapTemp[i].nRBSize;
-            prbMapTemp[nPrbElm].nBeamIndex = prbMapTemp[i].nBeamIndex;
-            prbMapTemp[nPrbElm].bf_weight_update = prbMapTemp[i].bf_weight_update;
-            prbMapTemp[nPrbElm].compMethod = prbMapTemp[i].compMethod;
-            prbMapTemp[nPrbElm].iqWidth = prbMapTemp[i].iqWidth;
-            prbMapTemp[nPrbElm].ScaleFactor = prbMapTemp[i].ScaleFactor;
-            prbMapTemp[nPrbElm].reMask = prbMapTemp[i].reMask;
-            prbMapTemp[nPrbElm].BeamFormingType = prbMapTemp[i].BeamFormingType;
+        /* force using a separate section for each symbol in one multisection CP (both DL and UL) message;
+         * when generating DL UP, symbol index should be within nStartSymb and (nStartSymb + numSymb);
+         * nPrbElm doesn't have any affect on UL UP */
+        nPrbElm++;
+        prbMapTemp[nPrbElm].nStartSymb = prbMapTemp[i].nStartSymb;
+        prbMapTemp[nPrbElm].nRBStart = prbMapTemp[i].nRBStart;
+        prbMapTemp[nPrbElm].nRBSize = prbMapTemp[i].nRBSize;
+        prbMapTemp[nPrbElm].nBeamIndex = prbMapTemp[i].nBeamIndex;
+        prbMapTemp[nPrbElm].bf_weight_update = prbMapTemp[i].bf_weight_update;
+        prbMapTemp[nPrbElm].compMethod = prbMapTemp[i].compMethod;
+        prbMapTemp[nPrbElm].iqWidth = prbMapTemp[i].iqWidth;
+        prbMapTemp[nPrbElm].ScaleFactor = prbMapTemp[i].ScaleFactor;
+        prbMapTemp[nPrbElm].reMask = prbMapTemp[i].reMask;
+        prbMapTemp[nPrbElm].BeamFormingType = prbMapTemp[i].BeamFormingType;
 
-            nRBStart = prbMapTemp[i].nRBStart;
-            nRBSize = prbMapTemp[i].nRBSize;
-        }
+        nRBStart = prbMapTemp[i].nRBStart;
+        nRBSize = prbMapTemp[i].nRBSize;
     }
 
     for(i = 0; i < nPrbElm; i++)
