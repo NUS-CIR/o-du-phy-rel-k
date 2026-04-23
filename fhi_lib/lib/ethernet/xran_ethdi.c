@@ -37,7 +37,10 @@
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
+#if defined(__arm__) || defined(__aarch64__)
+#else
 #include <immintrin.h>
+#endif
 #include <numa.h>
 #include <rte_config.h>
 #include <rte_common.h>
@@ -371,8 +374,8 @@ int32_t xran_ethdi_init_dpdk(char *name, char *vfio_name, struct xran_io_cfg *io
     char bbdev_vdev_aux[XRAN_MAX_AUX_BBDEV_NUM][32];
     char vfio_token[64]   = "";
     char iova_mode[32]    = "--iova-mode=pa";
-    char socket_mem[32]   = "--socket-mem=8192";
-    char socket_limit[32] = "--socket-limit=8192";
+    char socket_mem[32]   = "--socket-mem=0";
+    char socket_limit[32] = "--socket-limit=0";
     uint32_t cpu = 0;
     uint32_t node = 0;
 
@@ -488,8 +491,11 @@ int32_t xran_ethdi_init_dpdk(char *name, char *vfio_name, struct xran_io_cfg *io
     }
     printf("\n");
 
+#if defined(__arm__) || defined(__aarch64__)
+#else
     if(rte_vect_set_max_simd_bitwidth(RTE_VECT_SIMD_512) < 0)
         rte_panic("Cannot init RTE_VECT_SIMD_512: %s\n", rte_strerror(rte_errno));
+#endif
 
     /* This will return on system_core, which is not necessarily the
      * one we're on right now. */
@@ -567,11 +573,13 @@ int32_t xran_ethdi_init_dpdk_ports(struct xran_io_cfg *io_cfg,
                 ctx->tx_ring[i] = rte_ring_create(ring_name, NUM_MBUFS_RING_TRX,
                     rte_lcore_to_socket_id(*lcore_id), RING_F_SC_DEQ);
                 PANIC_ON(ctx->tx_ring[i] == NULL, "failed to allocate rx ring");
+                printf("Created ring %s on core %d\n", ring_name, *lcore_id);
                 for(qi = 0; qi < io_cfg->num_rxq; qi++) {
                     snprintf(ring_name, RTE_DIM(ring_name), "%s_%d_%d_%d", "rx_ring_cp", i, qi, port[i]);
                     ctx->rx_ring[i][qi] = rte_ring_create(ring_name, NUM_MBUFS_RING_TRX,
                         rte_lcore_to_socket_id(*lcore_id), RING_F_SP_ENQ);
                     PANIC_ON(ctx->rx_ring[i][qi] == NULL, "failed to allocate rx ring");
+                    printf("Created ring %s on core %d\n",ring_name,*lcore_id);
                 }
             }
         } else {
@@ -640,7 +648,7 @@ int32_t xran_ethdi_init_dpdk_ports(struct xran_io_cfg *io_cfg,
         snprintf(ring_name, RTE_DIM(ring_name), "%s_%d_%d", "dl_gen_ring_up", i,io_cfg->nDpdkProcessID);
         ctx->up_dl_pkt_gen_ring[i] = rte_ring_create(ring_name, NUM_MBUFS_RING, rte_lcore_to_socket_id(*lcore_id), /*RING_F_SC_DEQ*/0);
         PANIC_ON(ctx->up_dl_pkt_gen_ring[i] == NULL, "failed to allocate dl gen ring");
-        printf("created %s\n", ring_name);
+        printf("created %s on core %d\n", ring_name, *lcore_id);
     }
 
     return 1;

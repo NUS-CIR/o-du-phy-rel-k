@@ -36,7 +36,11 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <malloc.h>
+#if defined(__arm__) || defined(__aarch64__)
+#include <arm_neon.h>
+#else
 #include <immintrin.h>
+#endif
 #include <numa.h>
 #include <rte_common.h>
 #include <rte_eal.h>
@@ -121,6 +125,25 @@ int32_t xran_pkt_gen_desc_free(struct cp_up_tx_desc *p_desc);
 
 int32_t xran_pkt_gen_process_ring(struct rte_ring *r);
 int32_t xran_dl_pkt_ring_processing_func(void* args);
+
+void *mm_allocate_handle(size_t size, size_t alignment) {
+  void *ptr = NULL;
+#if defined(__arm__) || defined(__aarch64__)
+  // ARM-specific memory allocation
+  if (posix_memalign(&ptr, alignment, size) != 0) {
+    fprintf(stderr, "posix_memalign: allocation error\n");
+    return NULL;
+  }
+#else
+  // Intel-specific memory allocation
+  ptr = _mm_malloc(size, alignment);
+  if (ptr == NULL) {
+    fprintf(stderr, "_mm_malloc: allocation error\n");
+    return NULL;
+  }
+#endif
+  return ptr;
+}
 
 void
 xran_updateSfnSecStart(void)
@@ -334,8 +357,8 @@ int32_t xran_init_prach_lte(struct xran_fh_config* pConf, struct xran_device_ctx
             pDevCtx->prach_start_symbol[0], pDevCtx->prach_last_symbol[0]);
     }
 
-    pPrachCPConfig->prachEaxcOffset = xran_get_num_eAxc(pDevCtx);
-    print_dbg("PRACH: eAxC_offset %d\n",  pPrachCPConfig->prachEaxcOffset);
+    pPrachCPConfig->prachEaxcOffset = pPRACHConfig->prachEaxcOffset;
+    print_dbg("PRACH: prachEaxcOffset %d\n",  pPrachCPConfig->prachEaxcOffset);
     /* Save some configs for app */
     pPRACHConfig->startSymId    = pPrachCPConfig->startSymId;
     pPRACHConfig->lastSymId     = pPrachCPConfig->startSymId + pPrachCPConfig->numSymbol * pPrachCPConfig->occassionsInPrachSlot - 1;
@@ -501,20 +524,7 @@ xran_init_prach(struct xran_fh_config* pConf, struct xran_device_ctx * pDevCtx, 
         printf("PRACH start symbol %u lastsymbol %u\n", pDevCtx->prach_start_symbol[0], pDevCtx->prach_last_symbol[0]);
     }
 
-    /* match the RU sample-app prachEaxcOffset with DU in case of numerology-3 */
-    if(mu == 3)
-        pPRACHConfig->prachEaxcOffset = RTE_MAX(xran_get_num_eAxc(pDevCtx), 4);
-
-    if(pPRACHConfig->prachEaxcOffset==0)
-    {
-        pPrachCPConfig->prachEaxcOffset = pDevCtx->fh_cfg.perMu[mu].eaxcOffset + xran_get_num_eAxc(pDevCtx);
-        pPRACHConfig->prachEaxcOffset = pPrachCPConfig->prachEaxcOffset;
-    }
-    else
-    {
-        pPrachCPConfig->prachEaxcOffset = pPRACHConfig->prachEaxcOffset;
-    }
-
+    pPrachCPConfig->prachEaxcOffset = pPRACHConfig->prachEaxcOffset;
     print_dbg("PRACH eAxC_offset %d\n",  pPrachCPConfig->prachEaxcOffset);
 
     /* Save some configs for app */
@@ -611,6 +621,11 @@ void xran_process_nbiot_prach_cp(struct xran_device_ctx * pDevCtx, uint8_t mu)
                         uint8_t seqid = xran_get_cp_seqid(pDevCtx, XRAN_DIR_UL, ccId, portId);
 
                         uint16_t beam_id = xran_get_beamid(pDevCtx, XRAN_DIR_UL, ccId, portId, 0);
+                        uint8_t bufId = tti % XRAN_N_FE_BUF_LEN;
+                        struct xran_buffer_list *pBufList = &(pDevCtx->perMu[mu].sFrontHaulRxPrbMapBbuIoBufCtrl[bufId][ccId][antId].sBufferList);
+                        struct xran_prb_map *prbMap = (struct xran_prb_map *)pBufList->pBuffers->pData;
+                        struct xran_prb_elm *pPrbElm = &prbMap->prbMap[0]; //mjoang
+                        beam_id = pPrbElm->nBeamIndex;
                         ret = generate_cpmsg_prach(pDevCtx, &params, sect_geninfo, mbuf, pDevCtx,
                                 frameId, sfId, 0, tti,
                                 beam_id, ccId, portId, 0, seqid, mu, sym_id);
@@ -1880,6 +1895,10 @@ xran_prepare_cp_ul_slot(uint16_t xran_port_id, uint32_t nSlotIdx,  uint32_t nCcS
                                 uint8_t seqid = xran_get_cp_seqid(pHandle, XRAN_DIR_UL, ccId, portId);
 
                                 beam_id = xran_get_beamid(pHandle, XRAN_DIR_UL, ccId, portId, slotId);
+                                pBufList = &(pDevCtx->perMu[mu].sFrontHaulRxPrbMapBbuIoBufCtrl[bufId][ccId][antId].sBufferList);
+                                struct xran_prb_map *prbMap = (struct xran_prb_map *)pBufList->pBuffers->pData;
+                                struct xran_prb_elm *pPrbElm = &prbMap->prbMap[0]; //mjoang
+                                beam_id = pPrbElm->nBeamIndex;
                                 ret = generate_cpmsg_prach(pHandle, &params, sect_geninfo, mbuf, pDevCtx,
                                             frameId, sfId, slotId, tti,
                                             beam_id, ccId, portId, occasionid, seqid, mu, 0);
@@ -2128,6 +2147,10 @@ void tx_cp_ul_cb(struct rte_timer *tim, void *arg)
                             uint8_t seqid = xran_get_cp_seqid(pHandle, XRAN_DIR_UL, ccId, portId);
 
                             beam_id = xran_get_beamid(pHandle, XRAN_DIR_UL, ccId, portId, slotId);
+                            pBufList = &(pDevCtx->perMu[mu].sFrontHaulRxPrbMapBbuIoBufCtrl[bufId][ccId][antId].sBufferList);
+                            struct xran_prb_map *prbMap = (struct xran_prb_map *)pBufList->pBuffers->pData;
+                            struct xran_prb_elm *pPrbElm = &prbMap->prbMap[0]; //mjoang
+                            beam_id = pPrbElm->nBeamIndex;
                             ret = generate_cpmsg_prach(pHandle, &params, sect_geninfo, mbuf, pDevCtx,
                                     frameId, sfId, slotId, tti,
                                     beam_id, ccId, portId, occasionid, seqid, mu, 0);
@@ -2309,16 +2332,21 @@ int32_t xran_handle_rx_pkts(struct rte_mbuf* pkt_q[], uint16_t xport_id, struct 
                     // ECPRI payload validation
                     if(likely(sysCfg->rru_workaround == 0))
                     {
-                        if(unlikely(expected_ecpri_payload != (rte_pktmbuf_pkt_len(pkt) - sizeof(union xran_ecpri_cmn_hdr))))
-                        {
-                            ++p_dev_ctx->fh_counters.rx_err_ecpri;
-                            ++p_dev_ctx->fh_counters.rx_err_drop;
-                            ++p_dev_ctx->fh_counters.rx_counter;
-                            rte_pktmbuf_free(pkt);
-                            continue;
+                        uint16_t size_tail = (rte_pktmbuf_pkt_len(pkt) - sizeof(union xran_ecpri_cmn_hdr)) - expected_ecpri_payload;
+                        if(size_tail > 0) {
+                          int trim_ret = rte_pktmbuf_trim(pkt, size_tail);
+                          if(unlikely(trim_ret != 0))
+                              {
+                                  ++p_dev_ctx->fh_counters.rx_err_ecpri;
+                                  ++p_dev_ctx->fh_counters.rx_err_drop;
+                                  ++p_dev_ctx->fh_counters.rx_counter;
+                                  rte_pktmbuf_free(pkt);
+                                  continue;
+                              }
                         }
                     }
                     pkt_data[num_data++] = pkt;
+                    uint8_t *pkt_bytes = rte_pktmbuf_mtod(pkt, uint8_t*);
                     break;
                 // For RU emulation
                 case ECPRI_RT_CONTROL_DATA:
@@ -3663,8 +3691,7 @@ ring_processing_func_per_port(void* args)
     for (i = 0; i < ctx->io_cfg.num_vfs && i < XRAN_VF_MAX; i = i+1) {
         if (ctx->vf2xran_port[i] == portId) {
             for(qi = 0; qi < ctx->rxq_per_port[portId]; qi++){
-                if (process_ring(ctx->rx_ring[i][qi], i, qi))
-                    return 0;
+                process_ring(ctx->rx_ring[i][qi], i, qi);
             }
         }
     }
@@ -3708,7 +3735,7 @@ xran_status_t xran_update_worker_info(struct xran_worker_info_s *p_worker_info,
             continue;
         }
 
-        pThCtx = (struct xran_worker_th_ctx*) _mm_malloc(sizeof(struct xran_worker_th_ctx), 64);
+        pThCtx = (struct xran_worker_th_ctx*) mm_allocate_handle(sizeof(struct xran_worker_th_ctx), 64);
         if(pThCtx == NULL)
         {
             print_err("pThCtx allocation error\n");
@@ -3837,8 +3864,6 @@ int32_t xran_spawn_workers(void)
             break;
         }
     }
-
-    icx_cpu = _may_i_use_cpu_feature(_FEATURE_AVX512IFMA52);
 
     printf("ORAN operating mode: O-%s\n", (xran_get_syscfg_appmode() == ID_O_DU) ?"DU":"RU");
     printf("  Num of configured cores: %d%s\n", total_num_cores, icx_cpu?" (Xeon SP Gen3 or later)":"");
@@ -5568,27 +5593,23 @@ int32_t xran_init_PrbMap_by_symbol_from_cfg(struct xran_prb_map* p_PrbMapIn, str
 
     for(; i < XRAN_NUM_OF_SYMBOL_PER_SLOT; i++)
     {
-        if((nRBStart == prbMapTemp[i].nRBStart) && (nRBSize == prbMapTemp[i].nRBSize))
-        {
-                prbMapTemp[nPrbElm].numSymb++;
-        }
-        else
-        {
-            nPrbElm++;
-            prbMapTemp[nPrbElm].nStartSymb = prbMapTemp[i].nStartSymb;
-            prbMapTemp[nPrbElm].nRBStart = prbMapTemp[i].nRBStart;
-            prbMapTemp[nPrbElm].nRBSize = prbMapTemp[i].nRBSize;
-            prbMapTemp[nPrbElm].nBeamIndex = prbMapTemp[i].nBeamIndex;
-            prbMapTemp[nPrbElm].bf_weight_update = prbMapTemp[i].bf_weight_update;
-            prbMapTemp[nPrbElm].compMethod = prbMapTemp[i].compMethod;
-            prbMapTemp[nPrbElm].iqWidth = prbMapTemp[i].iqWidth;
-            prbMapTemp[nPrbElm].ScaleFactor = prbMapTemp[i].ScaleFactor;
-            prbMapTemp[nPrbElm].reMask = prbMapTemp[i].reMask;
-            prbMapTemp[nPrbElm].BeamFormingType = prbMapTemp[i].BeamFormingType;
+        /* force using a separate section for each symbol in one multisection CP (both DL and UL) message;
+         * when generating DL UP, symbol index should be within nStartSymb and (nStartSymb + numSymb);
+         * nPrbElm doesn't have any affect on UL UP */
+        nPrbElm++;
+        prbMapTemp[nPrbElm].nStartSymb = prbMapTemp[i].nStartSymb;
+        prbMapTemp[nPrbElm].nRBStart = prbMapTemp[i].nRBStart;
+        prbMapTemp[nPrbElm].nRBSize = prbMapTemp[i].nRBSize;
+        prbMapTemp[nPrbElm].nBeamIndex = prbMapTemp[i].nBeamIndex;
+        prbMapTemp[nPrbElm].bf_weight_update = prbMapTemp[i].bf_weight_update;
+        prbMapTemp[nPrbElm].compMethod = prbMapTemp[i].compMethod;
+        prbMapTemp[nPrbElm].iqWidth = prbMapTemp[i].iqWidth;
+        prbMapTemp[nPrbElm].ScaleFactor = prbMapTemp[i].ScaleFactor;
+        prbMapTemp[nPrbElm].reMask = prbMapTemp[i].reMask;
+        prbMapTemp[nPrbElm].BeamFormingType = prbMapTemp[i].BeamFormingType;
 
-            nRBStart = prbMapTemp[i].nRBStart;
-            nRBSize = prbMapTemp[i].nRBSize;
-        }
+        nRBStart = prbMapTemp[i].nRBStart;
+        nRBSize = prbMapTemp[i].nRBSize;
     }
 
     for(i = 0; i < nPrbElm; i++)

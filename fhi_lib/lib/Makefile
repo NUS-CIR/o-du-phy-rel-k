@@ -23,20 +23,41 @@ MYCUSTOMSPACE1='------------------------------------------------------------'
 ##############################################################
 #  Tools configuration
 ##############################################################
-ifeq ($(WIRELESS_SDK_TOOLCHAIN),icc)
-    CC  := icc
-    CPP := icpc
-    AS := as
-    AR := ar
-    LD := icc
-else ifeq ($(WIRELESS_SDK_TOOLCHAIN),icx)
-    CC  := icx
-    CPP := icpx
-    AS  := as
-    AR  := llvm-ar
-    LD  := icx
+
+# Default target architecture and compiler
+TARGET ?= x86
+
+# Architecture and compiler-specific tools and flags
+ifeq ($(TARGET), x86)
+    ifeq ($(WIRELESS_SDK_TOOLCHAIN),gcc)
+        CC  := gcc
+        CPP := g++
+        AS := as
+        AR := ar
+        LD := gcc
+    else ifeq ($(WIRELESS_SDK_TOOLCHAIN),icc)
+        CC  := icc
+        CPP := icpc
+        AS := as
+        AR := ar
+        LD := icc
+    else ifeq ($(WIRELESS_SDK_TOOLCHAIN),icx)
+        CC  := icx
+        CPP := icpx
+        AS  := as
+        AR  := llvm-ar
+        LD  := icx
+    else
+        $(error "Please define WIRELESS_SDK_TOOLCHAIN environment variable")
+    endif
+else ifeq ($(TARGET), armv8) # aarch64
+    CC := gcc
+    CPP := g++
+    LD := gcc
+    CFLAGS += -march=armv8-a
+    LDFLAGS +=
 else
-    $(error "Please define WIRELESS_SDK_TOOLCHAIN environment variable")
+    $(error Unsupported target architecture: $(TARGET))
 endif
 
 ifeq ($(WIRELESS_SDK_TARGET_ISA),avx512)
@@ -79,7 +100,7 @@ ifeq ($(RTE_SDK),)
 endif
 
 RTE_TARGET ?= x86_64-native-linux-icc
-RTE_INC := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH):/usr/lib64/pkgconfig:$(RTE_SDK)/build/meson-uninstalled pkgconf --cflags-only-I libdpdk)
+RTE_INC := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH):/usr/lib64/pkgconfig:$(RTE_SDK)/build/meson-uninstalled pkg-config --cflags-only-I libdpdk)
 
 API_DIR := $(PROJECT_DIR)/api
 SRC_DIR := $(PROJECT_DIR)/src
@@ -110,22 +131,23 @@ CC_SRC = $(ETH_DIR)/xran_ethdi.c \
 	$(SRC_DIR)/xran_main.c \
 	$(SRC_DIR)/xran_delay_measurement.c
 
-CPP_SRC = $(SRC_DIR)/xran_compression.cpp \
-	$(SRC_DIR)/xran_bfp_ref.cpp \
-	$(SRC_DIR)/xran_bfp_cplane8.cpp \
-	$(SRC_DIR)/xran_bfp_cplane16.cpp \
-	$(SRC_DIR)/xran_bfp_cplane32.cpp \
-	$(SRC_DIR)/xran_bfp_cplane64.cpp \
-	$(SRC_DIR)/xran_bfp_uplane.cpp \
-	$(SRC_DIR)/xran_mod_compression.cpp
+ifeq ($(TARGET), x86)
+    CPP_SRC = $(SRC_DIR)/xran_compression.cpp \
+              $(SRC_DIR)/xran_bfp_ref.cpp \
+              $(SRC_DIR)/xran_bfp_cplane8.cpp \
+              $(SRC_DIR)/xran_bfp_cplane16.cpp \
+              $(SRC_DIR)/xran_bfp_cplane32.cpp \
+              $(SRC_DIR)/xran_bfp_cplane64.cpp \
+              $(SRC_DIR)/xran_bfp_uplane.cpp
 
-CPP_SRC_SNC = $(SRC_DIR)/xran_compression_snc.cpp \
-	$(SRC_DIR)/xran_bfp_cplane8_snc.cpp \
-	$(SRC_DIR)/xran_bfp_cplane16_snc.cpp \
-	$(SRC_DIR)/xran_bfp_cplane32_snc.cpp \
-	$(SRC_DIR)/xran_bfp_cplane64_snc.cpp \
-	$(SRC_DIR)/xran_bfp_uplane_snc.cpp \
-	$(SRC_DIR)/xran_bfp_uplane_spr.cpp
+    CPP_SRC_SNC = $(SRC_DIR)/xran_compression_snc.cpp \
+                  $(SRC_DIR)/xran_bfp_cplane8_snc.cpp \
+                  $(SRC_DIR)/xran_bfp_cplane16_snc.cpp \
+                  $(SRC_DIR)/xran_bfp_cplane32_snc.cpp \
+                  $(SRC_DIR)/xran_bfp_cplane64_snc.cpp \
+                  $(SRC_DIR)/xran_bfp_uplane_snc.cpp \
+                  $(SRC_DIR)/xran_bfp_uplane_spr.cpp
+endif
 
 CC_FLAGS += -std=gnu11 -Wall -Wno-deprecated-declarations  \
 	-fdata-sections \
@@ -134,7 +156,11 @@ CC_FLAGS += -std=gnu11 -Wall -Wno-deprecated-declarations  \
 	-fPIC \
 	-Wall \
 	-Wimplicit-function-declaration \
-	-g -O3 -mcmodel=large
+	-g -O
+
+ifeq ($(TARGET), x86)
+CC_FLAGS += -mavx512bw -march=skylake-avx512 -mtune=skylake-avx512
+endif
 
 ifeq ($(WIRELESS_SDK_TOOLCHAIN),icc)
 CC_FLAGS += -wd1786 -restrict
@@ -148,9 +174,15 @@ ifeq ($(WIRELESS_SDK_TARGET_ISA),spr)
     CC_FLAGS += -D_BBLIB_SPR_ -qopt-zmm-usage=high
 endif
 
-CPP_FLAGS := -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -D_GNU_SOURCE -D_REENTRANT -pipe \
-                  -falign-functions=16 \
-        -Werror -Wno-unused-variable -std=c++14 -mcmodel=large -fPIC
+ifeq ($(TARGET), x86)
+    CPP_FLAGS := -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -D_GNU_SOURCE -D_REENTRANT -pipe \
+                 -fPIC \
+                 -falign-functions=16  \
+                 -Werror -Wno-unused-variable -std=c++14 -mcmodel=large -mavx512bw -march=skylake-avx512 -mtune=skylake-avx512
+else ifeq ($(TARGET), armv8)
+    CPP_FLAGS := -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -D_GNU_SOURCE -D_REENTRANT -pipe \
+                 -Werror -Wno-unused-variable -std=c++14
+endif
 
 ifeq ($(WIRELESS_SDK_TOOLCHAIN),icc)
 CPP_FLAGS +=  -fp-model fast=2 -no-prec-div -no-prec-sqrt -fast-transcendentals -restrict
@@ -164,7 +196,7 @@ ifeq ($(WIRELESS_SDK_TARGET_ISA),spr)
     CPP_FLAGS += -D_BBLIB_SPR_ -qopt-zmm-usage=high
 endif
 
-INC :=  -I$(API_DIR) -I$(ETH_DIR) -I$(SRC_DIR) -I$(RTE_INC)
+INC :=  -I$(API_DIR) -I$(ETH_DIR) -I$(SRC_DIR) $(RTE_INC)
 DEF :=
 ifeq ($(MLOG),1)
 	INC  += -I$(MLOG_DIR)/source
@@ -210,8 +242,13 @@ CPP_SNC_OBJTARGETS := $(addprefix $(PROJECT_OBJ_DIR)/,$(CPP_OBJS_SNC))
 
 AS_OBJTARGETS := $(addprefix $(PROJECT_OBJ_DIR)/,$(AS_OBJS))
 #-qopt-report=5 -qopt-matmul -qopt-report-phase=all
-CPP_COMP       := -O3 -DNDEBUG  -fPIE -fasm-blocks
-CPP_COMP_SNC   := -O3 -DNDEBUG -fPIE -fasm-blocks
+ifeq ($(TARGET), x86)
+    CPP_COMP       := -O3 -DNDEBUG  -fPIE
+    CPP_COMP_SNC   := -O3 -DNDEBUG -march=icelake-server -fPIE
+else ifeq ($(TARGET), armv8)
+    CPP_COMP       := -O3 -DNDEBUG -fPIE -Wrestrict
+    CPP_COMP_SNC   := -O3 -DNDEBUG -march=icelake-server -fPIE -Wrestrict
+endif
 CC_FLAGS_FULL  := $(CC_FLAGS)  $(INC) $(DEF)
 CPP_FLAGS_FULL := $(CPP_FLAGS) $(CPP_COMP) $(INC) $(DEF)
 CPP_FLAGS_FULL_SNC := $(CPP_FLAGS) $(CPP_COMP_SNC) $(INC) $(DEF)

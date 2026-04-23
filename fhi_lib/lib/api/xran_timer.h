@@ -119,12 +119,30 @@ inline unsigned long get_ticks_diff(unsigned long curr_tick, unsigned long last_
       return (unsigned long)(0xFFFFFFFFFFFFFFFF - last_tick + curr_tick);
 }
 
+#if defined(__x86_64__)
 inline uint64_t xran_tick(void)
 {
     uint32_t hi, lo;
     __asm volatile ("rdtsc" : "=a"(lo), "=d"(hi));
     return ( (uint64_t)lo)|( ((uint64_t)hi)<<32 );
 }
+#elif defined(__aarch64__)
+#include <sys/time.h>
+inline uint64_t xran_tick(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (uint64_t)tv.tv_sec * 1000000 + tv.tv_usec;
+}
+#elif defined(__arm__)
+#include <time.h>
+inline uint64_t xran_tick(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+}
+#else
+#error "Unsupported architecture"
+#endif
 
 int xran_timingsource_set_gpsoffset(int64_t offset_sec, int64_t offset_nsec);
 //uint32_t xran_timingsource_get_coreid(void);

@@ -35,7 +35,11 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <malloc.h>
+#if defined(__arm__) || defined(__aarch64__)
+#include <arm_neon.h>
+#else
 #include <immintrin.h>
+#endif
 
 #include <rte_common.h>
 #include <rte_eal.h>
@@ -1632,15 +1636,11 @@ int32_t xran_process_tx_sym_cp_on_opt(void* pHandle, uint8_t ctx_id, uint32_t tt
                         p_share_data->free_cb = extbuf_free_callback;
                         p_share_data->fcb_opaque = NULL;
                         rte_mbuf_ext_refcnt_set(p_share_data, 1);
-                        ext_buff = (char*) (xran_add_hdr_offset((uint8_t*)temp_buff, compMeth));
+                        ext_buff = temp_buff + sectinfo->sec_desc[sym_id].iq_buffer_offset;
 
                         /* Create ethernet + eCPRI + radio app header */
-                        iq_offset = xran_get_iqdata_len(sectinfo->numPrbc, iqWidth, compMeth);
-                        ext_buff_len = iq_offset;
-                        temp_buff = ext_buff + iq_offset;
-
+                        ext_buff_len = sectinfo->sec_desc[sym_id].iq_buffer_len;
                         ext_buff -= total_header_size;
-
                         ext_buff_len += (total_header_size + 18);
 
                         if (comp_head_upd)

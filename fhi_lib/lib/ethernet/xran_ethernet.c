@@ -37,7 +37,10 @@
 #include <sys/types.h>
 #include <stdlib.h>
 #include <math.h>
+#if defined(__arm__) || defined(__aarch64__)
+#else
 #include <immintrin.h>
+#endif
 
 #include <rte_config.h>
 #include <rte_common.h>

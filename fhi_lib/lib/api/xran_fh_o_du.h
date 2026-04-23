@@ -158,7 +158,7 @@ extern "C" {
 #define XRAN_SSB_MAX_NUM_SC          (240)  /**< 3GPP TS 38.211 - 7.4.3.1 Time-frequency structure of an SS/PBCH block */
 #define XRAN_SSB_MAX_NUM_PRB         (XRAN_SSB_MAX_NUM_SC /  XRAN_NUM_OF_SC_PER_RB)
 
-#define XRAN_MAX_FRAGMENT            (2)   /**< Max number of fragmentations in single symbol */
+#define XRAN_MAX_FRAGMENT            (7)   /**< Max number of fragmentations in single symbol */
 #define XRAN_MAX_RX_PKT_PER_SYM      (32)   /**< Max number of packets received in single symbol */
 #define XRAN_MAX_SET_BFWS            (64)  /**< Assumed 64Ant, BFP 9bit with 9K jumbo frame */
 

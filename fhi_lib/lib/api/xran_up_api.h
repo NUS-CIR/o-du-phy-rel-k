@@ -80,6 +80,7 @@ int32_t xran_extract_iq_samples(struct rte_mbuf *mbuf,
     uint8_t *subframe_id,
     uint8_t *slot_id,
     uint8_t *symb_id,
+    uint8_t *filter_id,
     union ecpri_seq_id *seq_id,
     uint16_t *num_prbu,
     uint16_t *start_prbu,
@@ -90,7 +91,8 @@ int32_t xran_extract_iq_samples(struct rte_mbuf *mbuf,
     enum xran_comp_hdr_type staticComp,
     uint8_t *compMeth,
     uint8_t *iqWidth,
-    uint8_t oxu_port_id); 
+    uint8_t oxu_port_id,
+    uint8_t *is_prach);
 
 int32_t xran_extract_iq_samples_dataheader(struct rte_mbuf *mbuf,
     void **iq_data_start,
