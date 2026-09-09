@@ -50,7 +50,12 @@ extern "C" {
 #define MBUF_POOL_ELM_SMALL_INDIRECT (128 + RTE_PKTMBUF_HEADROOM ) /* indirect */
 
 #define MBUF_POOL_ELM_SMALL (1700 + RTE_PKTMBUF_HEADROOM )/* regular ethernet MTU, most compatible */
-#define MBUF_POOL_ELEMENT (MAX_RX_LEN + RTE_PKTMBUF_HEADROOM)
+
+//Factor overhead for MLX5 HW application of minimum 18 bytes -> convert to 64 for increased headroom
+//L2 Ethernet overhead (14 bytes) 
+//CRC overhead of (4 bytes)
+#define MLX5_BUFFER_OVERHEAD_BYTES 64 
+#define MBUF_POOL_ELEMENT (MAX_RX_LEN + RTE_PKTMBUF_HEADROOM + MLX5_BUFFER_OVERHEAD_BYTES)
 
 #define MBUF_POOL_PKT_GEN_ELM (256 + RTE_PKTMBUF_HEADROOM )
 
