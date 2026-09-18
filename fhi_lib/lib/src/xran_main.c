@@ -667,6 +667,11 @@ void sym_ota_cb(void *arg, unsigned long *used_tick, uint8_t mu)
 
         pTCtx = (struct xran_timer_ctx *)pDevCtx->perMu[mu].timer_ctx;
 
+        /* Align each port at this numerology's own slot boundary, including
+         * lower numerologies and ports activated after the first TTI callback. */
+        xran_lib_ota_tti_mu[ru_id][mu] = XranGetTtiNum(xran_lib_ota_sym_idx_mu[mu],
+                                                    XRAN_NUM_OF_SYMBOL_PER_SLOT);
+
         pTCtx[(xran_lib_ota_tti_mu[ru_id][mu] & 1) ^ 1].tti_to_process = xran_lib_ota_tti_mu[ru_id][mu];
 
         if(xran_get_syscfg_appmode() == O_DU)
@@ -852,6 +857,16 @@ void tti_ota_cb(struct rte_timer *tim, uint8_t mu)
 
     timerMu = xran_timingsource_get_numerology();
     interval_us_local = xran_fs_get_tti_interval(timerMu);
+
+    /* Seed the base TTI from the aligned timer-numerology symbol clock on the
+     * first live slot. Per-port TTIs are aligned in sym_ota_cb(). */
+    static bool tti_initialized = false;
+    if(!tti_initialized)
+    {
+        xran_lib_ota_tti_base = XranGetTtiNum(xran_lib_ota_sym_idx_mu[timerMu],
+                                            XRAN_NUM_OF_SYMBOL_PER_SLOT);
+        tti_initialized = true;
+    }
 
     {
         /** tti as seen from PHY */
@@ -2246,9 +2261,13 @@ void tti_to_phy_cb(struct rte_timer *tim, void *arg)
 #endif
             uint32_t slotId = XranGetSlotNum(tti, SLOTNUM_PER_SUBFRAME(interval));
             uint32_t sfId   = XranGetSubFrameNum(tti, SLOTNUM_PER_SUBFRAME(interval), SUBFRAMES_PER_SYSTEMFRAME);
-            uint32_t frameId= XranGetFrameNum(tti, xran_getSfnSecStart(), SUBFRAMES_PER_SYSTEMFRAME, SLOTNUM_PER_SUBFRAME(interval));
 
-            if((frameId == xran_max_frame) && (sfId==9) && (slotId == SLOTNUM_PER_SUBFRAME(interval)-1))
+            /*
+             * The timing counters are synchronized when the timing source
+             * starts, so PHY traffic can be enabled at the next radio-frame
+             * boundary instead of waiting for a complete SFN wrap.
+             */
+            if((sfId == 9) && (slotId == SLOTNUM_PER_SUBFRAME(interval)-1))
             {
 #ifdef POLL_EBBU_OFFLOAD
                 pCtx->first_call = 1;

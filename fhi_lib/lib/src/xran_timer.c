@@ -201,25 +201,68 @@ long xran_timingsource_poll_next_tick(long interval_ns, unsigned long *used_tick
     p_io_cfg    = &(p_eth->io_cfg);
     pTmCtx      = xran_timingsource_get_ctx();
 
+    timerMu = pTmCtx->timerMu;
+
     if(firstCall == false)
     {
-        clock_gettime(CLOCK_REALTIME, p_last_time);
-        pTmCtx->last_tick = MLogTick();
+        struct timespec current_time;
+        struct timespec slot_boundary;
+        const long common_slot_boundary_ns = NSEC_PER_SEC / MSEC_PER_SEC;
 
+        /*
+         * Start at the next common OTA slot boundary instead of waiting for the
+         * next one-second boundary.  The 1 ms boundary is shared by all active
+         * numerologies, keeping every symbol, slot and SFN counter coherent.
+         */
+        clock_gettime(CLOCK_REALTIME, &current_time);
         if(unlikely(pTmCtx->offset_sec || pTmCtx->offset_nsec))
+            xran_timingsource_adj_gpssecond(&current_time);
+
+        slot_boundary = current_time;
+        slot_boundary.tv_nsec =
+            ((current_time.tv_nsec / common_slot_boundary_ns) + 1) *
+            common_slot_boundary_ns;
+        if(slot_boundary.tv_nsec >= NSEC_PER_SEC)
         {
-            xran_timingsource_adj_gpssecond(p_last_time);
+            slot_boundary.tv_sec++;
+            slot_boundary.tv_nsec = 0;
         }
 
+        do
+        {
+            clock_gettime(CLOCK_REALTIME, &current_time);
+            if(unlikely(pTmCtx->offset_sec || pTmCtx->offset_nsec))
+                xran_timingsource_adj_gpssecond(&current_time);
+        } while(current_time.tv_sec < slot_boundary.tv_sec ||
+            (current_time.tv_sec == slot_boundary.tv_sec &&
+             current_time.tv_nsec < slot_boundary.tv_nsec));
+
+        *p_last_time = slot_boundary;
+        pTmCtx->last_tick = MLogTick();
         pTmCtx->current_second = p_last_time->tv_sec;
+        xran_updateSfnSecStart();
+
+        for(i = 0; i <= timerMu; i++)
+        {
+            const long mu_slot_interval_ns = NSEC_PER_SEC /
+                (MSEC_PER_SEC * slots_per_subframe[i]);
+            const uint32_t slot_idx =
+                (uint32_t)(p_last_time->tv_nsec / mu_slot_interval_ns);
+
+            xran_lib_ota_sym_mu[i] = 0;
+            xran_lib_ota_sym_idx_mu[i] = slot_idx * XRAN_NUM_OF_SYMBOL_PER_SLOT;
+        }
+
+        xran_lib_ota_sym_mu[XRAN_NBIOT_MU] = 0;
+        xran_lib_ota_sym_idx_mu[XRAN_NBIOT_MU] = xran_lib_ota_sym_idx_mu[0];
+        sym_cnt = 0;
+        sym_acc = p_last_time->tv_nsec;
         firstCall = true;
     }
 
     target_time = (p_last_time->tv_sec * NSEC_PER_SEC + p_last_time->tv_nsec + interval_ns);
     /* Start symbol boundary for current symbol */
     sym_start_time = p_last_time->tv_sec * NSEC_PER_SEC + p_last_time->tv_nsec;
-
-    timerMu = pTmCtx->timerMu;
 
     while(1)
     {
@@ -491,10 +534,7 @@ int32_t xran_timingsource_thread(__attribute__((unused)) void *args)
 
     printf("Initial TTI interval : %ld [us]\n", interval_us);
 
-    /* Synchronize with ToS */
-    do {
-        timespec_get(&ts, TIME_UTC);
-    } while (ts.tv_nsec >1500);
+    timespec_get(&ts, TIME_UTC);
 
     struct tm *ptm = gmtime(&ts.tv_sec);
     if(ptm)
@@ -504,10 +544,8 @@ int32_t xran_timingsource_thread(__attribute__((unused)) void *args)
                 (appMode == O_DU ? "O-DU": "O-RU"), buff, ts.tv_nsec, interval_us);
     }
 
-    do {
-       timespec_get(&ts, TIME_UTC);
-    } while (ts.tv_nsec == 0);
-
+    /* Publish RUN only after the OTA counters have been phase-aligned. */
+    xran_timingsource_poll_next_tick(interval_us*1000L/N_SYM_PER_SLOT, &tUsed);
     xran_timingsource_set_state(XRAN_TMTHREAD_STAT_RUN);
 
     while(xran_timingsource_get_state() == XRAN_TMTHREAD_STAT_RUN)
@@ -696,7 +734,8 @@ int32_t xran_timingsource_start(void)
     extern int32_t first_call;
 
     struct xran_io_cfg *ioCfg;
-    int wait_time = 0, i, j;
+    int i, j;
+    struct timespec wait_start, wait_now;
 
     if(xran_timingsource_get_state() == XRAN_TMTHREAD_STAT_RUN)
     {
@@ -738,13 +777,14 @@ int32_t xran_timingsource_start(void)
     }
 
     // Make sure xRAN timing source thread is active before proceeding
+    clock_gettime(CLOCK_MONOTONIC, &wait_start);
     while(xran_timingsource_get_state() != XRAN_TMTHREAD_STAT_RUN)
     {
-        printf("Waiting for timing thread to be active ....%d\n", wait_time);
-        ++wait_time;
-        sleep(1);
+        usleep(100);
+        clock_gettime(CLOCK_MONOTONIC, &wait_now);
 
-        if(wait_time > 10)
+        if(((wait_now.tv_sec - wait_start.tv_sec) * NSEC_PER_SEC +
+            wait_now.tv_nsec - wait_start.tv_nsec) > 10 * NSEC_PER_SEC)
         {
             print_err("\nTiming thread not yet started\n");
             return XRAN_STATUS_FAIL;
